@@ -64,6 +64,7 @@ class DDPG(ABC):
 		"""
 
 		self._tensorflow_session = self._generate_tensorflow_session()
+		K.set_session(self._tensorflow_session)
 
 		self._explore = explore
 		self._final_epsilon = final_epsilon
@@ -92,12 +93,12 @@ class DDPG(ABC):
 		self._actor_gradients = tf.placeholder(tf.float32, [None, action_size + action_param_size]) # or state size?
 
 		actor_model_weights = self._actor_model.trainable_weights
-
+		# Change this back to -self._actor_gradients
 		self._actor_grads = tf.gradients(self._actor_model.output, actor_model_weights, -self._actor_gradients)
 
-		grads = zip(self._actor_grads, actor_model_weights)
+		grads = zip(self._actor_grads, self._actor_model.trainable_weights)
 
-		self._optimize = tf.train.AdamOptimizer(actor_lr).apply_gradients(grads)
+		self._actor_optimize = tf.train.AdamOptimizer(actor_lr).apply_gradients(grads)
 
 
 		# ==========================================
@@ -178,6 +179,10 @@ class DDPG(ABC):
 		assert epsilon >= 0 and epsilon <= 1.0, 'Epsilon out of range error'
 
 		if np.random.random() < epsilon:
+			# generate fake kick
+			# act = np.asarray([0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 20.0, 0.0])
+			# logging.debug('Exploring action: %s' % (act))
+			# return act
 			act = self.random_action()
 			logging.debug('Exploring action: %s' % (act))
 			return act
@@ -187,8 +192,9 @@ class DDPG(ABC):
 			return act
 
 	def get_action(self, action_vector):
-		action_vector[2] = -9999
-		action_index = np.argmax(action_vector[0:self.action_size])
+		action_vector_copy = action_vector.copy()
+		action_vector_copy[2] = -9999
+		action_index = np.argmax(action_vector_copy[0:self.action_size])
 		action = self.action_string(action_index)
 
 		param_index = self._get_param_index(action)
@@ -207,6 +213,7 @@ class DDPG(ABC):
 	def evaluate_action(self, state, action_vector):
 		#logging.debug('State: %s' % (state))
 		#logging.debug('Action" %s' % (action_vector))
+		#return self._critic_model.predict([state, action_vector])
 		return self._critic_model.predict([state.reshape(1, state.shape[0]), action_vector.reshape(1, action_vector.shape[0])])
 
 
@@ -298,9 +305,10 @@ class DDPG(ABC):
 		"""
 		Train actor critic network from batch of samples from memory
 		"""
-		self.__iter += 1
 		if len(self._memory) < self.batch_size or len(self._memory) < FLAGS.memory_threshold:
 			return
+
+		self.__iter += 1
 
 		# critic_loss, avg_q = UpdateActorCritic
 
@@ -390,9 +398,162 @@ class DDPG(ABC):
 		#
 		states, actions, rewards, on_policy_targets, next_states, terminals = self._get_samples(self.batch_size)
 
-		self._train_critic(states, actions, rewards, on_policy_targets, next_states, terminals)
-		logging.debug('Critic grads: %s' % (self._critic_grads))
-		self._train_actor(states)
+		#self._train_critic(states, actions, rewards, on_policy_targets, next_states, terminals)
+		#logging.debug('Critic grads: %s' % (self._critic_grads))
+		#self._train_actor(states)
+
+		# <editor-fold> yanplau method for updating
+        # target_q_values = critic.target_model.predict([new_states, actor.target_model.predict(new_states)])
+		#
+        # for k in range(len(batch)):
+        #     if dones[k]:
+        #         y_t[k] = rewards[k]
+        #     else:
+        #         y_t[k] = rewards[k] + GAMMA*target_q_values[k]
+		#
+        # if (train_indicator):
+        #     loss += critic.model.train_on_batch([states,actions], y_t)
+        #     a_for_grad = actor.model.predict(states)
+        #     grads = critic.gradients(states, a_for_grad)
+        #     actor.train(states, grads)
+        #     actor.target_train()
+        #     critic.target_train()
+		#
+        # total_reward += r_t
+        # s_t = s_t1
+
+	    # def gradients(self, states, actions):
+	    #     return self.sess.run(self.action_grads, feed_dict={
+	    #         self.state: states,
+	    #         self.action: actions
+	    #     })[0]
+		# </editor-fold> yanplau method for updating
+
+		target_q_values = self._target_critic_model.predict([next_states, self._target_actor_model.predict(next_states)])
+		targets = []
+		for reward, terminal, target_q_value, on_policy_target in zip(rewards, terminals, target_q_values, on_policy_targets): #, on_policy_targets):
+			if terminal:
+				off_policy_target = reward
+			else:
+				off_policy_target = reward + self._gamma * target_q_value
+			target = FLAGS.beta * on_policy_target + (1 - FLAGS.beta) * off_policy_target
+			assert np.isfinite(target), "Target not finite!"
+			targets.append(off_policy_target)
+
+		targets = np.asarray(targets)
+		logging.debug('[%i] Targets: %s' % (self.iter, targets))
+
+		history = self._critic_model.fit([states, actions], targets, verbose=0)
+		a_for_grad = self._actor_model.predict(states)
+		logging.debug('[%i] A for Grads: %s' % (self.iter, a_for_grad))
+
+		grads = self._tensorflow_session.run(self._critic_grads, feed_dict={
+			self._critic_state_input: states,
+			self._critic_action_input: a_for_grad
+		})[0]
+		logging.debug('[%i] Grads: %s' % (self.iter, grads))
+
+		actions = self._actor_model.predict(states)
+		logging.debug('[%i] Old Actions: %s' % (self.iter, actions))
+
+		# implement gradient clipping/squishing right here with grads
+		# for grad, action in zip(grads, actions):
+		# 	for g in grad:
+		# 		g = 0
+
+		# <editor-fold> zeroing gradients
+		# for i in range(len(actions)):
+		# 	for j in range(self.action_size):
+		# 		if actions[i][j] < -1.0 or actions[i][j] > 1.0:
+		# 			grads[i][j] = 0.0
+		# 	for k in range(self.action_size, self.action_size + self.action_param_size):
+		# 		if k == 4:
+		# 			min = -100
+		# 			max = 100
+		# 		elif k == 5 or k == 6 or k == 7 or k == 9:
+		# 			min = -180
+		# 			max = 180
+		# 		elif k == 8:
+		# 			min = 0
+		# 			max = 100
+		# 		if actions[i][k] < min or actions[i][k] > max:
+		# 			grads[i][k] = 0
+		# </editor-fold> zeroing gradients
+
+		# <editor-fold> squashing gradients
+
+		# </editor-fold> squashing gradients
+
+		# <editor-fold> inverting gradients
+		for i in range(len(actions)):
+			for j in range(self.action_size):
+				if grads[i][j] > 0:
+					grads[i][j] *= (1.0 - actions[i][j]) / (2.0)
+				elif grads[i][j] < 0:
+					grads[i][j] *= (actions[i][j] - 1.0) / (2.0)
+			for k in range(self.action_size, self.action_size + self.action_param_size):
+				if k == 4:
+					min = -100
+					max = 100
+				elif k == 5 or k == 6 or k == 7 or k == 9:
+					min = -180
+					max = 180
+				elif k == 8:
+					min = 0
+					max = 100
+				if grads[i][k] > 0:
+					grads[i][k] *= (max - actions[i][k]) / (max - min)
+				elif grads[i][k] < 0:
+					grads[i][k] *= (actions[i][k] - min) / (max - min)
+		# </editor-fold> inverting gradients
+
+		# for i, grad in enumerate(grads):
+		# 	logging.debug('grads val: %s' % (grads[i]))
+		# 	for j, g in enumerate(grads[i]):
+		# 		logging.debug('val: %s' % g)
+		# 		exit(0)
+		# 		g[j] = 0
+		logging.debug('[%i] New Grads: %s' % (self.iter, grads))
+
+		self._tensorflow_session.run(self._actor_optimize, feed_dict={
+			self._actor_state_input: states,
+			self._actor_gradients: grads
+		})
+
+		actions = self._actor_model.predict(states)
+		logging.debug('[%i] New Actions: %s' % (self.iter, actions))
+		#self._actor_model.train(states, grads)
+
+
+		# <editor-fold old train critic method
+		# target_actions = self._target_actor_model.predict(next_states)
+		# target_q_values = self._target_critic_model.predict([next_states, target_actions])
+		# #target_q_values = rewards if dones else rewards + self._gamma * next_q_values
+		# targets = []
+		# for reward, terminal, target_q_val, on_policy_target in zip(rewards, terminals, target_q_values, on_policy_targets): #, on_policy_targets):
+		# 	if terminal:
+		# 		off_policy_target = reward
+		# 		#off_policy_targets.append(reward)
+		# 	else:
+		# 		#off_policy_targets.append(reward + self._gamma * next(target_q_vals))
+		# 		off_policy_target = reward + self._gamma * target_q_val
+		#
+		# 	target = FLAGS.beta * on_policy_target + (1 - FLAGS.beta) * off_policy_target
+		#
+		# 	#assert np.isfinite(target), "Target not finite!"
+		# 	targets.append(off_policy_target)
+		#
+		# target_q_values = np.asarray(targets)
+		#
+		# # target_q_values = [reward if this_done else reward + self._gamma * (next_q_value)
+		# # 				   for (reward, next_q_value, this_done)
+		# # 				   in zip(rewards, next_q_values, dones)]
+		# # target_q_values = np.asarray(target_q_values)
+		# #logging.info('Fit critic (states): %s\n%s' % (states.shape, states))
+		# #logging.info('Fit critic (actions): %s\n%s' % (actions.shape, actions))
+		# self._critic_model.fit([states, actions], target_q_values, verbose=0)
+		# </editor-fold> old train critic method
+
 		self._update_targets()
 
 
@@ -406,9 +567,9 @@ class DDPG(ABC):
 		"""
 		Create Tensorflow session for use
 		"""
-		config = tf.ConfigProto()
-		config.gpu_options.allow_growth = True
-		return tf.Session(config = config)
+		config = tf.ConfigProto() #device_count = {'GPU': 2})
+		#config.gpu_options.allow_growth = True
+		return tf.Session(config = config) #tf.ConfigProto(gpu_options=tf.GPUOptions(visible_device_list="2")))
 
 
 	def _create_actor_model(self, model_name, hidden, lr):
@@ -425,8 +586,8 @@ class DDPG(ABC):
 			layer = Dense(layer_size, activation='linear', name='dense' + str(layer_size) + '_layer')(layer)
 			layer = Activation(lambda x: relu(x, alpha=0.01), name='activation_' + str(layer_size))(layer)
 
-		output_actions = Dense(self.__action_size, activation='sigmoid', name='action_layer')(layer)
-		output_action_params = Dense(self.__action_param_size, activation='sigmoid', name='action_param_layer')(layer)
+		output_actions = Dense(self.__action_size, activation='linear', name='action_layer')(layer)
+		output_action_params = Dense(self.__action_param_size, activation='linear', name='action_param_layer')(layer)
 		output_layer = concatenate([output_actions, output_action_params], name='output_layer')
 
 		model = Model(inputs=input_layer, outputs=output_layer, name=model_name)
@@ -457,7 +618,7 @@ class DDPG(ABC):
 			layer = Dense(layer_size, activation='linear', name='dense' + str(layer_size) + '_layer')(layer)
 			layer = Activation(lambda x: relu(x, alpha=0.01), name='activation_' + str(layer_size))(layer)
 
-		output_layer = Dense(1, activation = 'sigmoid', name = 'q_values_layer')(layer)
+		output_layer = Dense(1, activation = 'linear', name = 'q_values_layer')(layer)
 
 		model = Model(inputs=[state_input, action_input], outputs=output_layer, name=model_name)
 
@@ -479,8 +640,16 @@ class DDPG(ABC):
 
 		#samples = list(zip(*random.sample(self._memory, self._batch_size)))
 
+		# generate fake samples
+		# samples = []
+		# for i in range(count):
+		# 	samples.append(self._memory[i])
+
+		# states, actions, rewards, q_vals, next_states, terminals = list(zip(*samples)) #samples #list(zip(*samples))
+		# logging.debug('Fake actions: %s' % (np.asarray(actions)))
+
 		states, actions, rewards, q_vals, next_states, terminals = list(zip(*random.sample(self._memory, count))) #samples #list(zip(*samples))
-		logging.debug('Next states type: %s %s %s' % (np.asarray(next_states).shape, type(next_states), next_states))
+		#logging.debug('Next states type: %s %s %s' % (np.asarray(next_states).shape, type(next_states), next_states))
 		return np.asarray(states), np.asarray(actions), np.asarray(rewards), \
 			np.asarray(q_vals), np.asarray(next_states), np.asarray(terminals)
 
@@ -540,7 +709,7 @@ class DDPG(ABC):
 			target = FLAGS.beta * on_policy_target + (1 - FLAGS.beta) * off_policy_target
 
 			#assert np.isfinite(target), "Target not finite!"
-			targets.append(off_policy_target)
+			targets.append(target)
 
 		target_q_values = np.asarray(targets)
 

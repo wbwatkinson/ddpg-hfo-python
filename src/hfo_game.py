@@ -34,7 +34,7 @@ flags.DEFINE_float('ball_x_min', 0, "Ball X-Position initialization minimum.")
 flags.DEFINE_float('ball_x_max', 0.2, "Ball X-Position initialization maximum.")
 flags.DEFINE_float('ball_y_min', -0.8, "Ball Y-Position initialization minimum.", lower_bound=-1.0, upper_bound=1.0)
 flags.DEFINE_float('ball_y_max', 0.8, "Ball Y-Position initialization maximum.", lower_bound=-1.0, upper_bound=1.0)
-flags.DEFINE_integer('offense_on_ball', 1, "Offensive player to give the ball to.")
+flags.DEFINE_integer('offense_on_ball', 0, "Offensive player to give the ball to.")
 flags.DEFINE_bool('verbose', True, "Server prints verbose output.") # TODO Change to false
 
 
@@ -321,7 +321,7 @@ class HFOGameState(object):
 
 		if self.__kickable_delta >= 1 and not self.__got_kickable_reward:
 			reward += 1.0
-			self.__got_kickable_reward
+			self.__got_kickable_reward = True
 
 		return reward
 

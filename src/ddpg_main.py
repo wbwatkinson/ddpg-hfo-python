@@ -52,7 +52,7 @@ flags.DEFINE_float('actor_lr', .00001, "Solver learning rate.", lower_bound=0.0,
 flags.DEFINE_float('critic_lr', .001, "Solver learning rate.", lower_bound=0.0,  upper_bound=1.0)
 flags.DEFINE_float('clip_grad', 10, "Clip gradients.")
 flags.DEFINE_string('lr_policy', "fixed", "LR Policy.")
-flags.DEFINE_integer('max_iter', 100000, "Custom max iter.", lower_bound=0) #TODO change to 10000000
+flags.DEFINE_integer('max_iter', 10000000, "Custom max iter.", lower_bound=0) #TODO change to 10000000
 
 # Epsilon-Greedy Args
 flags.DEFINE_integer('explore', 10000, "Iterations for epsilon to reach given value.", lower_bound=0)
@@ -61,7 +61,7 @@ flags.DEFINE_float('evaluate_with_epsilon', 0, "Epsilon value to be used in eval
 
 # Evaluation Args
 flags.DEFINE_bool('evaluate', False, "Evaluation mode: only playing a game, no updates")
-flags.DEFINE_integer('evaluate_freq', 1000, "Frequency (steps) between evaluations", lower_bound=0)
+flags.DEFINE_integer('evaluate_freq', 10000, "Frequency (steps) between evaluations", lower_bound=0)
 flags.DEFINE_integer('repeat_games', 100, "Number of games played in evaluation mode", lower_bound=0)
 
 # Misc Args
@@ -247,7 +247,7 @@ def _keep_playing_games(tid, save_prefix, port, thread_lock):
 	best_score = float('-inf')
 	last_eval_iter = agent.iter
 
-	_evaluate(env, agent, tid)
+	#_evaluate(env, agent, tid)
 
 	for episode in range(0, FLAGS.max_iter):
 		total_reward = 0
@@ -255,7 +255,7 @@ def _keep_playing_games(tid, save_prefix, port, thread_lock):
 
 		epsilon = calculate_epsilon(agent.iter)
 		total_reward, steps, status, extrinsic_reward = _play_one_episode(env, agent, epsilon, True, episode, tid)
-		logging.info("[Agent %i] Episode %i reward = %f" % (tid, episode, total_reward))
+		logging.info("[Agent %i] Episode %i reward = %f steps = %i iter = %i" % (tid, episode, total_reward, steps, agent.iter))
 
 		n_updates = int(steps * FLAGS.update_ratio)
 
@@ -281,9 +281,12 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 	#game.update(env)
 	logging.debug('Episode status: %s' % (hfo.STATUS_STRINGS[game.status]))
 
-	assert not game.episode_over, "Episode should not be over at beginning!"
 
 	episode_states = []
+	env.act(DASH, 0, 0)
+	game.update(env)
+	assert not game.episode_over, "Episode should not be over at beginning!"
+
 	while not game.episode_over:
 
 		current_state = env.getState()
@@ -299,7 +302,8 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 		# get agent action from vector
 		action, params = agent.get_action(action_vector)
 		action_val = list(hfo.ACTION_STRINGS.keys())[list(hfo.ACTION_STRINGS.values()).index(action)]
-		logging.debug('q_value: %f Action: %s' % (agent.evaluate_action(current_state, action_vector), action))
+		logging.info('Step %i Actor_output: %s' % (game.steps, action_vector))
+		logging.info('q_value: %f Action: %s' % (agent.evaluate_action(current_state, action_vector), action))
 
 		# act
 		env.act(action_val, *params)
@@ -311,6 +315,7 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 		if update:
 			next_state = env.getState()
+			logging.debug('Next state: %s' % (next_state))
 			assert next_state.shape[0] == agent.state_size, \
 				'Next state size mismatch: ' + str(next_state.shape[0]) + ' /= ' + str(agent.state_size)
 			if game.status == IN_GAME:
@@ -374,7 +379,7 @@ def _evaluate(env, agent, tid):
 	steps = []
 	successful_trial_steps = []
 	goals = 0
-
+#FLAGS.evaluate_with_epsilon
 	for i in range(FLAGS.repeat_games):
 		trial_reward, trial_steps, trial_status, _ = _play_one_episode(env, agent, FLAGS.evaluate_with_epsilon, False, i, tid)
 		scores.append(trial_reward)
@@ -382,7 +387,7 @@ def _evaluate(env, agent, tid):
 		if trial_status == GOAL:
 			goals += 1
 			successful_trial_steps.append(trial_steps)
-
+		logging.debug('Evaluate Episode %i: Reward: %f, Trial Steps: %i, Status: %s' % (i, trial_reward, trial_steps, trial_status))
 	score_avg, score_std = np.mean(scores), np.std(scores)
 	steps_avg, steps_std = np.mean(steps), np.std(steps)
 	successful_steps_avg, successful_steps_std = np.mean(successful_trial_steps), np.std(successful_trial_steps)
