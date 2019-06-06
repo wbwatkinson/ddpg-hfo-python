@@ -112,7 +112,7 @@ def _set_log_files():
 
 	logging.getLogger().handlers = []
 
-	logging.getLogger().setLevel(logging.DEBUG)
+	#logging.getLogger().setLevel(logging.DEBUG)
 
 	#logging.addLevelName(15, 'verbose')
 
@@ -120,7 +120,7 @@ def _set_log_files():
 
 	#logging.basicConfig(level=getattr(logging, 'DEBUG')) #FLAGS.loglevel.upper()))
 
-	debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
+	#debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
 	info_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.INFO')))
 	warning_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.WARNING')))
 	error_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.ERROR')))
@@ -135,7 +135,7 @@ def _set_log_files():
 	#logging.getLogger().setLevel(level=getattr(logging, FLAGS.loglevel.upper())) # logging.DEBUG)
 	console.setLevel(getattr(logging, FLAGS.loglevel.upper()))
 
-	debug_fh.setLevel(logging.DEBUG)
+	#debug_fh.setLevel(logging.DEBUG)
 	info_fh.setLevel(logging.INFO)
 	warning_fh.setLevel(logging.WARNING)
 	error_fh.setLevel(logging.ERROR)
@@ -150,25 +150,27 @@ def _set_log_files():
 
 	formatter = MyFormatter('%(asctime)s: %(levelname).1s %(module)s:%(lineno)d] %(message)s', '%Y-%m-%d %H:%M:%S.%f')
 
-	debug_fh.setFormatter(formatter)
+	#debug_fh.setFormatter(formatter)
 	info_fh.setFormatter(formatter)
 	warning_fh.setFormatter(formatter)
 	error_fh.setFormatter(formatter)
 	critical_fh.setFormatter(formatter)
 
-	console.setFormatter(formatter)
+	if FLAGS.alsologtostderr:
+		console.setFormatter(formatter)
+		logging.getLogger().addHandler(console)
+
 	# info_ch.setFormatter(formatter)
 	# warning_ch.setFormatter(formatter)
 	# error_ch.setFormatter(formatter)
 	# fatal_ch.setFormatter(formatter)
 
-	logging.getLogger().addHandler(debug_fh)
+	#logging.getLogger().addHandler(debug_fh)
 	logging.getLogger().addHandler(info_fh)
 	logging.getLogger().addHandler(warning_fh)
 	logging.getLogger().addHandler(error_fh)
 	logging.getLogger().addHandler(critical_fh)
 
-	logging.getLogger().addHandler(console)
 	# logging.getLogger().addHandler(info_ch)
 	# logging.getLogger().addHandler(warning_ch)
 	# logging.getLogger().addHandler(error_ch)
@@ -183,7 +185,7 @@ def run(agent, state, num_trials):
 		#action = action.reshape((1, action.shape[0]))
 		#episode += 1
 		chosen_act = np.argmax(action[0:4])
-		logging.info('Episode %i, Decay: %f Action: %s%s%s' % (episode, agent._epsilon(), chosen_act, action.shape, action))
+		logging.debug('Episode %i, Decay: %f Action: %s%s%s' % (episode, agent._epsilon(), chosen_act, action.shape, action))
 
 
 		next_state = []
@@ -199,7 +201,7 @@ def run(agent, state, num_trials):
 		else:
 			reward = 0.0
 
-		logging.info('Reward: %s' % (reward))
+		logging.debug('Reward: %s' % (reward))
 		done = False
 
 		agent.remember(state, action, reward, next_state, done)
@@ -248,19 +250,22 @@ def _keep_playing_games(tid, save_prefix, port, thread_lock):
 	last_eval_iter = agent.iter
 
 	#_evaluate(env, agent, tid)
-
+	steps_since_update = 0
 	for episode in range(0, FLAGS.max_iter):
 		total_reward = 0
 		# play one Episode
 
 		epsilon = calculate_epsilon(agent.iter)
 		total_reward, steps, status, extrinsic_reward = _play_one_episode(env, agent, epsilon, True, episode, tid)
-		logging.info("[Agent %i] Episode %i reward = %f steps = %i iter = %i" % (tid, episode, total_reward, steps, agent.iter))
+		logging.info("[Agent {}] Episode {} reward = {: .2f} steps = {:3d} iter = {:11,d}"
+			.format(tid, episode, total_reward, steps, agent.iter))
+		steps_since_update += steps
 
-		n_updates = int(steps * FLAGS.update_ratio)
+		n_updates = int(steps_since_update * FLAGS.update_ratio)
 
 		for i in range(n_updates):
 			agent.train()
+			steps_since_update = steps_since_update % FLAGS.update_ratio
 
 		if agent.iter >= last_eval_iter + FLAGS.evaluate_freq:
 			avg_score = _evaluate(env, agent, tid)
@@ -284,7 +289,7 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 	episode_states = []
 	env.act(DASH, 0, 0)
-	game.update(env)
+	game.initialize(env)
 	assert not game.episode_over, "Episode should not be over at beginning!"
 
 	while not game.episode_over:
@@ -302,8 +307,8 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 		# get agent action from vector
 		action, params = agent.get_action(action_vector)
 		action_val = list(hfo.ACTION_STRINGS.keys())[list(hfo.ACTION_STRINGS.values()).index(action)]
-		logging.info('Step %i Actor_output: %s' % (game.steps, action_vector))
-		logging.info('q_value: %f Action: %s' % (agent.evaluate_action(current_state, action_vector), action))
+		logging.debug('Step %i Actor_output: %s' % (game.steps, action_vector))
+		logging.debug('q_value: %f Action: %s' % (agent.evaluate_action(current_state, action_vector), action))
 
 		# act
 		env.act(action_val, *params)
@@ -331,6 +336,8 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 	if update:
 		agent.label_transitions(episode_states)
+		for transition in episode_states:
+			logging.debug('Transition reward %f QVal %f' % (transition[2], transition[3]))
 		agent.add_transitions(episode_states)
 
 	state_num = 1
