@@ -238,8 +238,10 @@ class HFOGameState(object):
 
 	# </editor-fold> Properties
 
+	def initialize(self, hfo):
+		self.update(hfo, True)
 
-	def update(self, hfo):
+	def update(self, hfo, initialize=False):
 		self.__status = hfo.step()
 		if self.status == SERVER_DOWN:
 			logging.critical("Server Down!")
@@ -297,7 +299,8 @@ class HFOGameState(object):
 		logging.debug("Player on Ball: %i", self.__player_on_ball.unum)
 		# logging.debug("Player on Ball side: %i", self.__player_on_ball.side)
 		# logging.debug("Old Player on Ball side: %i", self.__old_player_on_ball.side)
-		self.__steps += 1
+		if not initialize:
+			self.__steps += 1
 
 
 	def reward(self):
