@@ -487,10 +487,12 @@ class DDPG(ABC):
 		# <editor-fold> inverting gradients
 		for i in range(len(actions)):
 			for j in range(self.action_size):
+				min = -1.0
+				max = 1.0
 				if grads[i][j] > 0:
-					grads[i][j] *= (1.0 - actions[i][j]) / (2.0)
+					grads[i][j] *= (max - actions[i][j]) / (2.0)
 				elif grads[i][j] < 0:
-					grads[i][j] *= (actions[i][j] - 1.0) / (2.0)
+					grads[i][j] *= (actions[i][j] - min) / (2.0)
 			for k in range(self.action_size, self.action_size + self.action_param_size):
 				if k == 4:
 					min = -100
@@ -594,7 +596,7 @@ class DDPG(ABC):
 
 		#model = multi_gpu_model(model, gpus=3)
 
-		model.compile(loss='mse', optimizer=Adam(lr=lr))
+		model.compile(loss='mse', optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2, clipnorm=FLAGS.clip_grad))
 		logging.debug(model_name + ' model:')
 		logging.debug(model.summary())
 
@@ -624,7 +626,7 @@ class DDPG(ABC):
 
 		#model = multi_gpu_model(model, gpus=3)
 
-		model.compile(loss='mse', optimizer=Adam(lr=lr))
+		model.compile(loss='mse', optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2, clipnorm=FLAGS.clip_grad))
 		logging.debug(model_name + ' model:')
 		logging.debug(model.summary())
 
