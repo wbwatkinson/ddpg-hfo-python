@@ -19,7 +19,7 @@ FLAGS = flags.FLAGS
 
 bin_path = "../bin/"
 
-kPassVelThreshold = 0.5
+kPassVelThreshold = -0.5
 
 #TODO change frames per trial to 500
 flags.DEFINE_string('server_cmd', bin_path + "HFO --fullstate --frames-per-trial 500", "Command executed to start the HFO server.")
@@ -31,7 +31,7 @@ flags.DEFINE_string('team_name', "base_left", "Name of team for agents.")
 flags.DEFINE_bool('play_goalie', False, "Should the agent play goalie.")
 flags.DEFINE_string('record_dir', "", "Directory to record states,actions,rewards.")
 flags.DEFINE_float('ball_x_min', 0, "Ball X-Position initialization minimum.")
-flags.DEFINE_float('ball_x_max', 0.2, "Ball X-Position initialization maximum.")
+flags.DEFINE_float('ball_x_max', 0.2, "Ball X-Position initialization mFaximum.")
 flags.DEFINE_float('ball_y_min', -0.8, "Ball Y-Position initialization minimum.", lower_bound=-1.0, upper_bound=1.0)
 flags.DEFINE_float('ball_y_max', 0.8, "Ball Y-Position initialization maximum.", lower_bound=-1.0, upper_bound=1.0)
 flags.DEFINE_integer('offense_on_ball', 0, "Offensive player to give the ball to.")
@@ -49,7 +49,8 @@ def start_hfo_server(port, offense_agents, offense_npcs, defense_agents, defense
 	       " --ball-x-max " + str(FLAGS.ball_x_max) +
 	       " --ball-y-min " + str(FLAGS.ball_y_min) +
 	       " --ball-y-max " + str(FLAGS.ball_y_max) +
-	       " --offense-on-ball " + str(FLAGS.offense_on_ball))
+	       " --offense-on-ball " + str(FLAGS.offense_on_ball) +
+		   " --untouched-time 500")
 
 	if not FLAGS.gui:
 		cmd += " --headless"
@@ -146,8 +147,8 @@ class HFOGameState(object):
 		self.__our_unum = unum
 		self.__pass_active = False
 
-		self.__old_player_on_ball = None
-		self.__player_on_ball = None
+		self.__old_player_on_ball = hfo.Player()
+		self.__player_on_ball = hfo.Player()
 
 		logging.debug("Creating new HFOGameState")
 
@@ -238,10 +239,10 @@ class HFOGameState(object):
 
 	# </editor-fold> Properties
 
-	def initialize(self, hfo):
-		self.update(hfo, True)
+	# def initialize(self, hfo):
+	# 	self.update(hfo, True)
 
-	def update(self, hfo, initialize=False):
+	def update(self, hfo):
 		self.__status = hfo.step()
 		if self.status == SERVER_DOWN:
 			logging.critical("Server Down!")
@@ -278,7 +279,7 @@ class HFOGameState(object):
 		ball_vel_valid = current_state[54]
 		ball_vel = current_state[55]
 		if ball_vel_valid and ball_vel > kPassVelThreshold:
-			self.__pass_active = true
+			self.__pass_active = True
 
 		if self.steps > 0:
 			self.__ball_prox_delta = ball_proximity - self.__old_ball_prox
@@ -296,11 +297,12 @@ class HFOGameState(object):
 
 		self.__old_player_on_ball = self.__player_on_ball
 		self.__player_on_ball = hfo.playerOnBall()
-		logging.debug("Player on Ball: %i", self.__player_on_ball.unum)
+		logging.debug("Player on Ball: side: %i unum: %i, Old Player on Ball: side: %i unum %i" %
+			(self.__player_on_ball.side, self.__player_on_ball.unum,
+			 self.__old_player_on_ball.side, self.__old_player_on_ball.unum))
 		# logging.debug("Player on Ball side: %i", self.__player_on_ball.side)
 		# logging.debug("Old Player on Ball side: %i", self.__old_player_on_ball.side)
-		if not initialize:
-			self.__steps += 1
+		self.__steps += 1
 
 
 	def reward(self):
@@ -311,8 +313,8 @@ class HFOGameState(object):
 		reward = move_to_ball_reward + kick_to_goal_reward + eot_reward
 		self.__extrinsic_reward += eot_reward
 		self.__total_reward += reward
-		logging.debug('Step: %i Overall Reward: %f MTB: %f KTG: %f EOT: %f' %
-					 (self.steps, reward, move_to_ball_reward, kick_to_goal_reward, eot_reward))
+		logging.debug('Step: %i Overall Reward: %f MTB: %f KTG: %f EOT: %f Total %f' %
+					 (self.steps, reward, move_to_ball_reward, kick_to_goal_reward, eot_reward, self.__total_reward))
 		return reward
 
 
@@ -340,16 +342,19 @@ class HFOGameState(object):
 	def _eot_reward(self):
 		if self.__status == GOAL:
 			#assert (self.__old_player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.__old_player_on_ball.side)
-			assert (self.__player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.__player_on_ball.side)
+			assert (self.__old_player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.__old_player_on_ball.side)
 
-			if self.__player_on_ball.unum == self.__our_unum:
-				logging.debug('We Scored!')
-				return 5.0
-			else:
-				logging.debug('Teammate Scored')
-				logging.debug('Teammate: %i Self: %i' % (self.__player_on_ball.unum, self.__our_unum))
-				exit(0)
-				return 1.0
+			logging.debug('We Scored! Old Player: %i New Player: %i' % (self.__old_player_on_ball.unum,self.__player_on_ball.unum))
+			return 5.0
+
+			# if self.__player_on_ball.unum == self.__our_unum:
+			# 	logging.debug('We Scored!')
+			# 	return 5.0
+			# else:
+			# 	logging.debug('Teammate Scored')
+			# 	logging.debug('Teammate: %i Self: %i' % (self.__player_on_ball.unum, self.__our_unum))
+			# 	exit(0)
+			# 	return 1.0
 
 		elif self.__status == CAPTURED_BY_DEFENSE:
 			return 0.0
@@ -363,7 +368,3 @@ class HFOGameState(object):
 			logging.debug('Unum %i steps %i got pass reward!' % (self.__our_unum, self.__steps))
 			return 1.0
 		return 0
-
-
-	def _EOT_reward(self):
-		return 0.0
