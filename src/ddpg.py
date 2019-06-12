@@ -184,11 +184,11 @@ class DDPG(ABC):
 			# logging.debug('Exploring action: %s' % (act))
 			# return act
 			act = self.random_action()
-			logging.debug('Exploring action: %s' % (act))
+			#logging.debug('Exploring action: %s' % (act))
 			return act
 		else:
 			act = self._actor_model.predict(state.reshape(1, state.shape[0]))[0]
-			logging.debug('Exploiting action: %s' % (act))
+			#logging.debug('Exploiting action: %s' % (act))
 			return act
 
 	def get_action(self, action_vector):
@@ -205,7 +205,7 @@ class DDPG(ABC):
 		for i in range(num_params):
 			params.append(action_vector[param_index + i])
 
-		logging.debug('Action(%i): %s Params(%i): %s' % (action_index, action, param_index, params))
+		#logging.debug('Action(%i): %s Params(%i): %s' % (action_index, action, param_index, params))
 
 		return action, params
 
@@ -232,7 +232,9 @@ class DDPG(ABC):
 			transition[3] = reward + FLAGS.gamma * next_q_val
 			transition_num -= 1
 			next_transition = transition
-			#logging.debug('Transition %i: %f, %f' % (transition_num, reward, transition[3]))
+
+		for transition in episode:
+			logging.debug('Transition reward %f QVal: %f' % (transition[2], transition[3]))
 
 
 	#def update(self):
@@ -441,20 +443,20 @@ class DDPG(ABC):
 			targets.append(off_policy_target)
 
 		targets = np.asarray(targets)
-		logging.debug('[%i] Targets: %s' % (self.iter, targets))
+		#logging.debug('[%i] Targets: %s' % (self.iter, targets))
 
 		history = self._critic_model.fit([states, actions], targets, verbose=0)
 		a_for_grad = self._actor_model.predict(states)
-		logging.debug('[%i] A for Grads: %s' % (self.iter, a_for_grad))
+		#logging.debug('[%i] A for Grads: %s' % (self.iter, a_for_grad))
 
 		grads = self._tensorflow_session.run(self._critic_grads, feed_dict={
 			self._critic_state_input: states,
 			self._critic_action_input: a_for_grad
 		})[0]
-		logging.debug('[%i] Grads: %s' % (self.iter, grads))
+		#logging.debug('[%i] Grads: %s' % (self.iter, grads))
 
 		actions = self._actor_model.predict(states)
-		logging.debug('[%i] Old Actions: %s' % (self.iter, actions))
+		#logging.debug('[%i] Old Actions: %s' % (self.iter, actions))
 
 		# implement gradient clipping/squishing right here with grads
 		# for grad, action in zip(grads, actions):
@@ -515,7 +517,7 @@ class DDPG(ABC):
 		# 		logging.debug('val: %s' % g)
 		# 		exit(0)
 		# 		g[j] = 0
-		logging.debug('[%i] New Grads: %s' % (self.iter, grads))
+		#logging.debug('[%i] New Grads: %s' % (self.iter, grads))
 
 		self._tensorflow_session.run(self._actor_optimize, feed_dict={
 			self._actor_state_input: states,
@@ -523,7 +525,7 @@ class DDPG(ABC):
 		})
 
 		actions = self._actor_model.predict(states)
-		logging.debug('[%i] New Actions: %s' % (self.iter, actions))
+		#logging.debug('[%i] New Actions: %s' % (self.iter, actions))
 		#self._actor_model.train(states, grads)
 
 
@@ -570,7 +572,7 @@ class DDPG(ABC):
 		Create Tensorflow session for use
 		"""
 		config = tf.ConfigProto() #device_count = {'GPU': 2})
-		#config.gpu_options.allow_growth = True
+		config.gpu_options.allow_growth = True
 		return tf.Session(config = config) #tf.ConfigProto(gpu_options=tf.GPUOptions(visible_device_list="2")))
 
 
@@ -596,7 +598,9 @@ class DDPG(ABC):
 
 		#model = multi_gpu_model(model, gpus=3)
 
-		model.compile(loss='mse', optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2, clipnorm=FLAGS.clip_grad))
+		model.compile(loss='mse',
+			optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2,
+						   clipnorm=FLAGS.clip_grad, decay=0.0, epsilon=0.00000001))
 		logging.debug(model_name + ' model:')
 		logging.debug(model.summary())
 
@@ -626,7 +630,9 @@ class DDPG(ABC):
 
 		#model = multi_gpu_model(model, gpus=3)
 
-		model.compile(loss='mse', optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2, clipnorm=FLAGS.clip_grad))
+		model.compile(loss='mse',
+			optimizer=Adam(lr=lr, beta_1= FLAGS.momentum, beta_2=FLAGS.momentum2,
+						   clipnorm=FLAGS.clip_grad, decay=0.0, epsilon=0.00000001))
 		logging.debug(model_name + ' model:')
 		logging.debug(model.summary())
 
