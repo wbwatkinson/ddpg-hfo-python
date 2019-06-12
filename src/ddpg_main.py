@@ -31,7 +31,7 @@ import timeit
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_bool('gpu', True, "Use GPU to brew Caffe")
+flags.DEFINE_integer('gpu', -1, "Use GPU to brew Caffe")
 flags.DEFINE_bool('benchmark', False, "Benchmark the network and exit")
 flags.DEFINE_bool('learn_offline', False, "Just do updates on a fixed replaymemory.")
 
@@ -112,7 +112,7 @@ def _set_log_files():
 
 	logging.getLogger().handlers = []
 
-	#logging.getLogger().setLevel(logging.DEBUG)
+	logging.getLogger().setLevel(logging.DEBUG)
 
 	#logging.addLevelName(15, 'verbose')
 
@@ -120,7 +120,7 @@ def _set_log_files():
 
 	#logging.basicConfig(level=getattr(logging, 'DEBUG')) #FLAGS.loglevel.upper()))
 
-	#debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
+	debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
 	info_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.INFO')))
 	warning_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.WARNING')))
 	error_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.ERROR')))
@@ -135,7 +135,7 @@ def _set_log_files():
 	#logging.getLogger().setLevel(level=getattr(logging, FLAGS.loglevel.upper())) # logging.DEBUG)
 	console.setLevel(getattr(logging, FLAGS.loglevel.upper()))
 
-	#debug_fh.setLevel(logging.DEBUG)
+	debug_fh.setLevel(logging.DEBUG)
 	info_fh.setLevel(logging.INFO)
 	warning_fh.setLevel(logging.WARNING)
 	error_fh.setLevel(logging.ERROR)
@@ -150,7 +150,8 @@ def _set_log_files():
 
 	formatter = MyFormatter('%(asctime)s: %(levelname).1s %(module)s:%(lineno)d] %(message)s', '%Y-%m-%d %H:%M:%S.%f')
 
-	#debug_fh.setFormatter(formatter)
+	console.setFormatter(formatter)
+	debug_fh.setFormatter(formatter)
 	info_fh.setFormatter(formatter)
 	warning_fh.setFormatter(formatter)
 	error_fh.setFormatter(formatter)
@@ -165,7 +166,7 @@ def _set_log_files():
 	# error_ch.setFormatter(formatter)
 	# fatal_ch.setFormatter(formatter)
 
-	#logging.getLogger().addHandler(debug_fh)
+	logging.getLogger().addHandler(debug_fh)
 	logging.getLogger().addHandler(info_fh)
 	logging.getLogger().addHandler(warning_fh)
 	logging.getLogger().addHandler(error_fh)
@@ -177,37 +178,37 @@ def _set_log_files():
 	# logging.getLogger().addHandler(fatal_ch)
 
 
-def run(agent, state, num_trials):
-	for episode in range(num_trials):
-
-		action = agent.act(state)
-
-		#action = action.reshape((1, action.shape[0]))
-		#episode += 1
-		chosen_act = np.argmax(action[0:4])
-		logging.debug('Episode %i, Decay: %f Action: %s%s%s' % (episode, agent._epsilon(), chosen_act, action.shape, action))
-
-
-		next_state = []
-		for i in range (0, 59):
-			next_state.append(random.uniform(-1.0, 1.0))
-		next_state = np.array(next_state)
-		#next_state = next_state.reshape((1, next_state.shape[0]))
-
-
-
-		if chosen_act == 0:
-			reward = 1.0
-		else:
-			reward = 0.0
-
-		logging.debug('Reward: %s' % (reward))
-		done = False
-
-		agent.remember(state, action, reward, next_state, done)
-		agent.train()
-
-		state = next_state
+# def run(agent, state, num_trials):
+# 	for episode in range(num_trials):
+#
+# 		action = agent.act(state)
+#
+# 		#action = action.reshape((1, action.shape[0]))
+# 		#episode += 1
+# 		chosen_act = np.argmax(action[0:4])
+# 		logging.debug('Episode %i, Decay: %f Action: %s%s%s' % (episode, agent._epsilon(), chosen_act, action.shape, action))
+#
+#
+# 		next_state = []
+# 		for i in range (0, 59):
+# 			next_state.append(random.uniform(-1.0, 1.0))
+# 		next_state = np.array(next_state)
+# 		#next_state = next_state.reshape((1, next_state.shape[0]))
+#
+#
+#
+# 		if chosen_act == 0:
+# 			reward = 1.0
+# 		else:
+# 			reward = 0.0
+#
+# 		logging.debug('Reward: %s' % (reward))
+# 		done = False
+#
+# 		agent.remember(state, action, reward, next_state, done)
+# 		agent.train()
+#
+# 		state = next_state
 
 
 def calculate_epsilon(iter):
@@ -284,12 +285,12 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 	game = hfo_game.HFOGameState(agent.get_unum())
 	#env.act(DASH, 0, 0)
 	#game.update(env)
-	logging.debug('Episode status: %s' % (hfo.STATUS_STRINGS[game.status]))
+	#logging.debug('Episode status: %s' % (hfo.STATUS_STRINGS[game.status]))
 
 
 	episode_states = []
 	env.act(DASH, 0, 0)
-	game.initialize(env)
+	game.update(env)
 	assert not game.episode_over, "Episode should not be over at beginning!"
 
 	while not game.episode_over:
@@ -302,12 +303,12 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 		# select agent action
 		action_vector = agent.select_action(current_state, epsilon)
-		logging.debug('Episode %i Step %i Actor output: %s' % (episode, game.steps, action_vector))
+		#logging.debug('Episode %i Step %i Actor output: %s' % (episode, game.steps, action_vector))
 
 		# get agent action from vector
 		action, params = agent.get_action(action_vector)
 		action_val = list(hfo.ACTION_STRINGS.keys())[list(hfo.ACTION_STRINGS.values()).index(action)]
-		logging.debug('Step %i Actor_output: %s' % (game.steps, action_vector))
+		logging.debug('Episode %i Step %i Actor_output: %s' % (episode, game.steps, action_vector))
 		logging.debug('q_value: %f Action: %s' % (agent.evaluate_action(current_state, action_vector), action))
 
 		# act
@@ -320,7 +321,7 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 		if update:
 			next_state = env.getState()
-			logging.debug('Next state: %s' % (next_state))
+			#logging.debug('Next state: %s' % (next_state))
 			assert next_state.shape[0] == agent.state_size, \
 				'Next state size mismatch: ' + str(next_state.shape[0]) + ' /= ' + str(agent.state_size)
 			if game.status == IN_GAME:
@@ -336,15 +337,15 @@ def _play_one_episode(env, agent, epsilon, update, episode, tid):
 
 	if update:
 		agent.label_transitions(episode_states)
-		for transition in episode_states:
-			logging.debug('Transition reward %f QVal %f' % (transition[2], transition[3]))
+		#for transition in episode_states:
+			#logging.debug('Transition reward %f QVal %f' % (transition[2], transition[3]))
 		agent.add_transitions(episode_states)
 
-	state_num = 1
-	for state in episode_states:
-		_, _, reward, q_val, _, _ = state
-		logging.debug('Transition %i: %f, %f' % (state_num, reward, q_val))
-		state_num += 1
+	# state_num = 1
+	# for state in episode_states:
+	# 	_, _, reward, q_val, _, _ = state
+	# 	#logging.debug('Transition %i: %f, %f' % (state_num, reward, q_val))
+	# 	state_num += 1
 
 	#agent.add_transitions(episode_states)
 	# logging.debug('Total: %f Steps: %i Status: %s Extrinsic Reward: %f' %
@@ -410,6 +411,8 @@ def _evaluate(env, agent, tid):
 def main(argv):
 	_verify_cmd_args()
 	_set_log_files()
+
+	os.environ["CUDA_VISIBLE_DEVICES"] = str(FLAGS.gpu)
 
 	port = random.randint(20000, 59999)
 
