@@ -17,6 +17,10 @@ from absl import flags
 
 import logging
 
+from pathlib import Path
+import json
+import pprint
+
 from abc import ABC, abstractmethod
 
 kStateInputCount = 1
@@ -94,7 +98,7 @@ class DDPG(ABC):
 
 		actor_model_weights = self._actor_model.trainable_weights
 		# Change this back to -self._actor_gradients
-		self._actor_grads = tf.gradients(self._actor_model.output, actor_model_weights, -self._actor_gradients)
+		self._actor_grads = tf.gradients(self._actor_model.output, actor_model_weights, self._actor_gradients)
 
 		grads = zip(self._actor_grads, self._actor_model.trainable_weights)
 
@@ -161,6 +165,29 @@ class DDPG(ABC):
 			return 1.0 - (1.0 - self._final_epsilon) * (self.__iter / self._explore)
 		else:
 			return self._final_epsilon
+
+	def save_model_defs(self, save_prefix):
+		with open(Path(save_prefix).parent / (Path(save_prefix).stem + ('_actor.json')), 'w', encoding='utf-8') as outfile:
+			json.dump(self._actor_model.to_json(), outfile)
+
+		with open(Path(save_prefix).parent / (Path(save_prefix).stem + ('_critic.json')), 'w', encoding='utf-8') as outfile:
+			json.dump(self._critic_model.to_json(), outfile)
+
+
+	def save_weights(self, save_prefix, iter):
+		self._actor_model.save_weights(Path(save_prefix).parent / (Path(save_prefix).stem + ('_actor_iter_weights_' + str(iter) + '.h5')),
+									   overwrite=False)
+		self._critic_model.save_weights(Path(save_prefix).parent / (Path(save_prefix).stem + ('_critic_iter_weights_' + str(iter) + '.h5')),
+									   overwrite=False)
+
+	def save_models(self, save_prefix, iter):
+		self._actor_model.save(str(Path(save_prefix).parent / (Path(save_prefix).stem + ('_actor_iter_' + str(iter) + '.h5'))),
+							   overwrite=False)
+		self._critic_model.save(str(Path(save_prefix).parent / (Path(save_prefix).stem + ('_critic_iter_' + str(iter) + '.h5'))),
+							    overwrite=False)
+
+
+#	def load_weights(self, save_prefix, iter):
 
 
 	def select_action(self, state, epsilon):
@@ -491,23 +518,23 @@ class DDPG(ABC):
 			for j in range(self.action_size):
 				min = -1.0
 				max = 1.0
-				if grads[i][j] > 0:
-					grads[i][j] *= (max - actions[i][j]) / (2.0)
-				elif grads[i][j] < 0:
-					grads[i][j] *= (actions[i][j] - min) / (2.0)
+				if grads[i][j] < 0:
+					grads[i][j] *= (max - actions[i][j]) / (max - min)
+				elif grads[i][j] > 0:
+					grads[i][j] *= (actions[i][j] - min) / (max - min)
 			for k in range(self.action_size, self.action_size + self.action_param_size):
-				if k == 4:
-					min = -100
-					max = 100
-				elif k == 5 or k == 6 or k == 7 or k == 9:
+				# if k == 4:
+				# 	min = -100
+				# 	max = 100
+				if k == 5 or k == 6 or k == 7 or k == 9:
 					min = -180
 					max = 180
-				elif k == 8:
+				elif k ==4 or k == 8:
 					min = 0
 					max = 100
-				if grads[i][k] > 0:
+				if grads[i][k] < 0:
 					grads[i][k] *= (max - actions[i][k]) / (max - min)
-				elif grads[i][k] < 0:
+				elif grads[i][k] > 0:
 					grads[i][k] *= (actions[i][k] - min) / (max - min)
 		# </editor-fold> inverting gradients
 

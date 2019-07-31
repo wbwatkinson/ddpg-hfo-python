@@ -61,7 +61,7 @@ flags.DEFINE_float('evaluate_with_epsilon', 0, "Epsilon value to be used in eval
 
 # Evaluation Args
 flags.DEFINE_bool('evaluate', False, "Evaluation mode: only playing a game, no updates")
-flags.DEFINE_integer('evaluate_freq', 10000, "Frequency (steps) between evaluations", lower_bound=0)
+flags.DEFINE_integer('evaluate_freq', 1000, "Frequency (steps) between evaluations", lower_bound=0)
 flags.DEFINE_integer('repeat_games', 100, "Number of games played in evaluation mode", lower_bound=0)
 
 # Misc Args
@@ -120,7 +120,7 @@ def _set_log_files():
 
 	#logging.basicConfig(level=getattr(logging, 'DEBUG')) #FLAGS.loglevel.upper()))
 
-	debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
+	#debug_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.DEBUG')))
 	info_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.INFO')))
 	warning_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.WARNING')))
 	error_fh = logging.FileHandler(Path(FLAGS.save).parent / (Path(FLAGS.save).stem + ('_ddpg.ERROR')))
@@ -135,7 +135,7 @@ def _set_log_files():
 	#logging.getLogger().setLevel(level=getattr(logging, FLAGS.loglevel.upper())) # logging.DEBUG)
 	console.setLevel(getattr(logging, FLAGS.loglevel.upper()))
 
-	debug_fh.setLevel(logging.DEBUG)
+	#debug_fh.setLevel(logging.DEBUG)
 	info_fh.setLevel(logging.INFO)
 	warning_fh.setLevel(logging.WARNING)
 	error_fh.setLevel(logging.ERROR)
@@ -151,7 +151,7 @@ def _set_log_files():
 	formatter = MyFormatter('%(asctime)s: %(levelname).1s %(module)s:%(lineno)d] %(message)s', '%Y-%m-%d %H:%M:%S.%f')
 
 	console.setFormatter(formatter)
-	debug_fh.setFormatter(formatter)
+	#debug_fh.setFormatter(formatter)
 	info_fh.setFormatter(formatter)
 	warning_fh.setFormatter(formatter)
 	error_fh.setFormatter(formatter)
@@ -166,7 +166,7 @@ def _set_log_files():
 	# error_ch.setFormatter(formatter)
 	# fatal_ch.setFormatter(formatter)
 
-	logging.getLogger().addHandler(debug_fh)
+	#logging.getLogger().addHandler(debug_fh)
 	logging.getLogger().addHandler(info_fh)
 	logging.getLogger().addHandler(warning_fh)
 	logging.getLogger().addHandler(error_fh)
@@ -233,6 +233,8 @@ def _keep_playing_games(tid, save_prefix, port, thread_lock):
 
 	agent = StrikerAgent(tid, num_features, FLAGS.actor_lr, FLAGS.critic_lr, FLAGS.epsilon, FLAGS.explore)
 
+	agent.save_model_defs(FLAGS.save)
+
 	env = hfo.HFOEnvironment()
 	hfo_game.connect_to_server(env, port)
 	agent.set_unum(env.getUnum())
@@ -273,7 +275,8 @@ def _keep_playing_games(tid, save_prefix, port, thread_lock):
 			if avg_score > best_score:
 				logging.info('[Agent %i] New High Score: %f, agent_iter = %i' % (tid, avg_score, agent.iter))
 				best_score = avg_score
-
+			agent.save_weights(FLAGS.save, agent.iter)
+			agent.save_models(FLAGS.save, agent.iter)
 			last_eval_iter = agent.iter
 
 	del agent

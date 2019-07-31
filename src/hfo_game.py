@@ -278,13 +278,13 @@ class HFOGameState(object):
 
 		ball_vel_valid = current_state[54]
 		ball_vel = current_state[55]
-		if ball_vel_valid and ball_vel > kPassVelThreshold:
+		if ball_vel_valid > 0 and ball_vel > kPassVelThreshold:
 			self.__pass_active = True
 
 		if self.steps > 0:
-			self.__ball_prox_delta = ball_proximity - self.__old_ball_prox
-			self.__kickable_delta = kickable - self.__old_kickable
-			self.__ball_dist_goal_delta = ball_dist_goal - self.__old_ball_dist_goal
+			self.__ball_prox_delta = ball_proximity - self.old_ball_prox
+			self.__kickable_delta = kickable - self.old_kickable
+			self.__ball_dist_goal_delta = ball_dist_goal - self.old_ball_dist_goal
 
 		self.__old_ball_prox = ball_proximity
 		self.__old_kickable = kickable
@@ -295,11 +295,11 @@ class HFOGameState(object):
 			self.__kickable_delta = 0.0
 			self.__ball_dist_goal_delta = 0.0
 
-		self.__old_player_on_ball = self.__player_on_ball
+		self.__old_player_on_ball = self.player_on_ball
 		self.__player_on_ball = hfo.playerOnBall()
 		logging.debug("Player on Ball: side: %i unum: %i, Old Player on Ball: side: %i unum %i" %
-			(self.__player_on_ball.side, self.__player_on_ball.unum,
-			 self.__old_player_on_ball.side, self.__old_player_on_ball.unum))
+			(self.player_on_ball.side, self.__player_on_ball.unum,
+			 self.old_player_on_ball.side, self.__old_player_on_ball.unum))
 		# logging.debug("Player on Ball side: %i", self.__player_on_ball.side)
 		# logging.debug("Old Player on Ball side: %i", self.__old_player_on_ball.side)
 		self.__steps += 1
@@ -314,17 +314,17 @@ class HFOGameState(object):
 		self.__extrinsic_reward += eot_reward
 		self.__total_reward += reward
 		logging.debug('Step: %i Overall Reward: %f MTB: %f KTG: %f EOT: %f Total %f' %
-					 (self.steps, reward, move_to_ball_reward, kick_to_goal_reward, eot_reward, self.__total_reward))
+					 (self.steps, reward, move_to_ball_reward, kick_to_goal_reward, eot_reward, self.total_reward))
 		return reward
 
 
 	def _move_to_ball_reward(self):
 		reward = 0.0
 
-		if self.__player_on_ball.unum < 0 or self.__player_on_ball.unum == self.__our_unum:
-			reward += self.__ball_prox_delta
+		if self.player_on_ball.unum < 0 or self.player_on_ball.unum == self.our_unum:
+			reward += self.ball_prox_delta
 
-		if self.__kickable_delta >= 1 and not self.__got_kickable_reward:
+		if self.kickable_delta >= 1 and not self.got_kickable_reward:
 			reward += 1.0
 			self.__got_kickable_reward = True
 
@@ -332,19 +332,19 @@ class HFOGameState(object):
 
 
 	def _kick_to_goal_reward(self):
-		if self.__player_on_ball.unum == self.__our_unum:
-			return -self.__ball_dist_goal_delta
-		elif self.__got_kickable_reward:
-			return 0.2 * -self.__ball_dist_goal_delta
+		if self.player_on_ball.unum == self.our_unum:
+			return -self.ball_dist_goal_delta
+		elif self.got_kickable_reward:
+			return 0.2 * -self.ball_dist_goal_delta
 		return 0
 
 
 	def _eot_reward(self):
-		if self.__status == GOAL:
+		if self.status == GOAL:
 			#assert (self.__old_player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.__old_player_on_ball.side)
-			assert (self.__old_player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.__old_player_on_ball.side)
+			assert (self.old_player_on_ball.side == LEFT), 'Unexpected side: {}'.format(self.old_player_on_ball.side)
 
-			logging.debug('We Scored! Old Player: %i New Player: %i' % (self.__old_player_on_ball.unum,self.__player_on_ball.unum))
+			logging.debug('We Scored! Old Player: %i New Player: %i' % (self.old_player_on_ball.unum, self.player_on_ball.unum))
 			return 5.0
 
 			# if self.__player_on_ball.unum == self.__our_unum:
@@ -356,15 +356,15 @@ class HFOGameState(object):
 			# 	exit(0)
 			# 	return 1.0
 
-		elif self.__status == CAPTURED_BY_DEFENSE:
+		elif self.status == CAPTURED_BY_DEFENSE:
 			return 0.0
 
 		return 0.0
 
 
 	def _pass_reward(self):
-		if self.__pass_active and self.__player_on_ball.unum > 0 and self.__player_on_ball.unum != self.__old_player_on_ball.unum:
+		if self.pass_active and self.player_on_ball.unum > 0 and self.player_on_ball.unum != self.old_player_on_ball.unum:
 			self.__pass_active = False
-			logging.debug('Unum %i steps %i got pass reward!' % (self.__our_unum, self.__steps))
+			logging.debug('Unum %i steps %i got pass reward!' % (self.our_unum, self.steps))
 			return 1.0
 		return 0
